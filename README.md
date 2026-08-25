@@ -3,6 +3,9 @@
 A small native Wayland wizard for setting up keyboard layouts and calibrating
 modifier keys on [Omarchy](https://omarchy.org/).
 
+> **AI authorship notice:** This project was written by `gpt-5.6-sol-xhigh`,
+> with human direction and review.
+
 Terminals cannot reliably observe a bare Super, Alt, Ctrl, or Shift press. This
 wizard uses GTK 4 to capture the hardware keycodes directly, so it can guide you
 through prompts such as “Press Super now” and detect common keyboard firmware
@@ -111,3 +114,5 @@ Hyprland settings and backups are intentionally preserved.
 ## License
 
 MIT
+
+See [NOTICE.md](NOTICE.md) for the AI authorship notice.
