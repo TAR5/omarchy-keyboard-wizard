@@ -49,7 +49,14 @@ Item {
   property var matchedCharacter: null
   property string detectedText: ""
 
-  property var reviewData: ({})
+  property var reviewData: ({
+    ok: false,
+    correction_options: [],
+    warnings: [],
+    character_results: [],
+    character_pass_count: 0,
+    character_total: 0
+  })
   property var resultData: ({})
   property bool applying: false
   property string processError: ""
@@ -124,7 +131,14 @@ Item {
     page = 0
     captureMode = ""
     stateData = ({})
-    reviewData = ({})
+    reviewData = {
+      ok: false,
+      correction_options: [],
+      warnings: [],
+      character_results: [],
+      character_pass_count: 0,
+      character_total: 0
+    }
     resultData = ({})
     modifierCaptures = ({})
     characterCaptures = ({})
@@ -417,7 +431,14 @@ Item {
     captureMode = ""
     resetHeldKeys()
     page = 4
-    reviewData = ({})
+    reviewData = {
+      ok: false,
+      correction_options: [],
+      warnings: [],
+      character_results: [],
+      character_pass_count: 0,
+      character_total: 0
+    }
     reviewHandled = false
     processError = ""
     reviewProc.command = ["python3", backendPath, "review", JSON.stringify(configurationPayload())]
@@ -1015,7 +1036,7 @@ Item {
                   }
 
                   Text {
-                    visible: (root.reviewData.warnings || []).length > 0
+                    visible: root.reviewData.warnings.length > 0
                     Layout.fillWidth: true
                     text: "Needs attention"
                     color: Color.urgent
