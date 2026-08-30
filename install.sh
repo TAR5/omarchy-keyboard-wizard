@@ -7,6 +7,8 @@ bin_dir="$HOME/.local/bin"
 desktop_dir="$data_home/applications"
 plugin_id="tar5.keyboard-wizard"
 plugin_url="https://github.com/TAR5/omarchy-keyboard-wizard.git"
+legacy_app="$data_home/omarchy-keyboard-wizard/wizard.py"
+legacy_dir="$data_home/omarchy-keyboard-wizard"
 
 if ! command -v omarchy >/dev/null 2>&1 || ! command -v omarchy-shell >/dev/null 2>&1; then
   printf 'Keyboard Setup requires a current Omarchy installation.\n' >&2
@@ -18,6 +20,13 @@ if omarchy plugin list --json | grep -Fq '"id":"tar5.keyboard-wizard"'; then
   omarchy plugin enable "$plugin_id"
 else
   omarchy plugin add "$plugin_url" --enable --yes
+fi
+
+if [[ -e "$legacy_app" ]]; then
+  rm -- "$legacy_app"
+fi
+if [[ -d "$legacy_dir" ]] && [[ -z "$(find "$legacy_dir" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
+  rmdir -- "$legacy_dir"
 fi
 
 install -Dm755 "$repo_dir/bin/omarchy-keyboard-wizard" "$bin_dir/omarchy-keyboard-wizard"
