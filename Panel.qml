@@ -337,7 +337,9 @@ Item {
           modifiers: Number(event.modifiers),
           held_keycodes: heldKeycodeList()
         }
-        detectedText = "This chord produced no text. Release the keys to choose an override or continue a compose sequence…"
+        detectedText = "This chord produced no text. Use this key for “"
+          + printableCharacter(currentCharacter.character)
+          + "”, continue a compose sequence, or type another chord."
         return
       }
       var expected = String(currentCharacter.character || "")
@@ -360,7 +362,9 @@ Item {
           modifiers: Number(event.modifiers),
           held_keycodes: heldKeycodeList()
         }
-        detectedText = "Detected “" + printableCharacter(produced) + "”. Release the keys to choose an override or try again…"
+        detectedText = "Detected “" + printableCharacter(produced)
+          + "”. Use this key for “" + printableCharacter(currentCharacter.character)
+          + "”, or type another chord."
       }
     }
   }
@@ -463,7 +467,7 @@ Item {
   }
 
   function acceptCharacterOverride() {
-    if (captureMode !== "character" || !conflictCharacter || heldCount !== 0) return
+    if (captureMode !== "character" || !conflictCharacter) return
     var capture = ({})
     for (var field in conflictCharacter) capture[field] = conflictCharacter[field]
     capture.override = true
@@ -988,10 +992,13 @@ Item {
                 }
                 Item { Layout.fillWidth: true }
                 Button {
-                  visible: root.conflictCharacter !== null && root.heldCount === 0
                   text: "Use this key for " + String(root.currentCharacter.label || "character")
-                  active: true
+                  enabled: root.conflictCharacter !== null
+                  active: root.conflictCharacter !== null
                   bordered: true
+                  tooltipText: root.conflictCharacter !== null
+                    ? "Assign the detected physical chord to this character"
+                    : "Type a conflicting chord first"
                   onClicked: root.acceptCharacterOverride()
                 }
                 Button {

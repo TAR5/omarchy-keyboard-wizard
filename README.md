@@ -32,6 +32,8 @@ Quickshell can capture each physical scan code directly.
 The character walkthrough validates the selected XKB layout. A mismatch can be
 retried, skipped, or deliberately overridden. Overrides are never inferred: the
 wizard uses only the physical chord confirmed with **Use this key**.
+The action is always shown during character capture and becomes active as soon
+as a conflicting chord is detected.
 
 ## Requirements
 

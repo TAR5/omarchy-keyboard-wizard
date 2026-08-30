@@ -37,6 +37,9 @@ wrong symbol appears—or the chord produces no text—release the chord and cho
 or skip the character and apply the layout with a warning. Overrides affect only
 the primary layout.
 
+The **Use this key for …** button is always visible during character capture. It
+is disabled until the current chord produces a conflicting character or no text.
+
 ## A character override is rejected
 
 Character overrides support normal, Shift, Right Alt/AltGr, and
