@@ -25,6 +25,7 @@ Quickshell can capture each physical scan code directly.
   character or no text, generating a device-specific XKB override for the
   primary layout.
 - Writes a device-specific `hl.device` override to `~/.config/hypr/input.lua`.
+- Unloads its Quickshell component after the panel is closed.
 - Preserves existing settings, creates a timestamped backup, reloads Hyprland,
   checks `hyprctl configerrors`, and rolls back automatically on validation
   errors.

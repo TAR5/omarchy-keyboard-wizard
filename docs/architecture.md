@@ -7,6 +7,10 @@ manifest, while the manifest source directory locates `src/backend.py`. The
 panel uses the installed Omarchy colors, spacing, typography, surfaces, buttons,
 and dropdown components rather than carrying a second UI toolkit.
 
+The manifest sets `keepLoaded` to `false`. Closing the panel calls the shell
+host's `hide()` method, clears the open-panel state, and lets Quickshell destroy
+the plugin Loader instance instead of retaining the wizard in memory.
+
 While open, its Wayland layer surface requests exclusive keyboard focus. A
 focused QML item handles `Keys.onPressed` and `Keys.onReleased`, including bare
 modifier events that terminals cannot observe reliably.

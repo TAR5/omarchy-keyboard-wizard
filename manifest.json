@@ -2,13 +2,13 @@
   "schemaVersion": 1,
   "id": "tar5.keyboard-wizard",
   "name": "Keyboard Setup",
-  "version": "2.1.2",
+  "version": "2.1.3",
   "author": "TAR5",
   "description": "Guided keyboard layout, modifier, and punctuation calibration for Omarchy",
   "kinds": [
     "panel"
   ],
-  "keepLoaded": true,
+  "keepLoaded": false,
   "entryPoints": {
     "panel": "Panel.qml"
   }
