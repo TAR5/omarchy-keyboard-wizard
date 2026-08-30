@@ -47,14 +47,18 @@ Item {
   property var heldKeys: ({})
   property int heldCount: 0
   property var matchedCharacter: null
+  property var conflictCharacter: null
   property string detectedText: ""
 
   property var reviewData: ({
     ok: false,
     correction_options: [],
+    override_errors: [],
     warnings: [],
     character_results: [],
     character_pass_count: 0,
+    character_override_count: 0,
+    character_overrides: [],
     character_total: 0
   })
   property var resultData: ({})
@@ -125,6 +129,7 @@ Item {
     heldKeys = ({})
     heldCount = 0
     matchedCharacter = null
+    conflictCharacter = null
   }
 
   function resetWizard() {
@@ -134,9 +139,12 @@ Item {
     reviewData = {
       ok: false,
       correction_options: [],
+      override_errors: [],
       warnings: [],
       character_results: [],
       character_pass_count: 0,
+      character_override_count: 0,
+      character_overrides: [],
       character_total: 0
     }
     resultData = ({})
@@ -312,24 +320,47 @@ Item {
     }
 
     if (captureMode === "character") {
+      if (heldCount === 0) conflictCharacter = null
       var heldKey = String(Number(event.nativeScanCode))
       if (!heldKeys[heldKey]) {
         heldKeys = copyWithValue(heldKeys, heldKey, true)
         heldCount += 1
       }
       var produced = String(event.text || "")
-      if (!produced) return
+      if (!produced) {
+        if (isCapturedModifierKey(Number(event.nativeScanCode))) return
+        matchedCharacter = null
+        conflictCharacter = {
+          actual: "",
+          keycode: Number(event.nativeScanCode),
+          key: Number(event.key),
+          modifiers: Number(event.modifiers),
+          held_keycodes: heldKeycodeList()
+        }
+        detectedText = "This chord produced no text. Release the keys to choose an override or continue a compose sequence…"
+        return
+      }
       var expected = String(currentCharacter.character || "")
       if (produced.indexOf(expected) !== -1) {
+        conflictCharacter = null
         matchedCharacter = {
           actual: produced,
           keycode: Number(event.nativeScanCode),
           key: Number(event.key),
-          modifiers: Number(event.modifiers)
+          modifiers: Number(event.modifiers),
+          held_keycodes: heldKeycodeList()
         }
         detectedText = "Detected “" + printableCharacter(produced) + "”. Release the keys to continue…"
       } else {
-        detectedText = "Detected “" + printableCharacter(produced) + "” — try again."
+        matchedCharacter = null
+        conflictCharacter = {
+          actual: produced,
+          keycode: Number(event.nativeScanCode),
+          key: Number(event.key),
+          modifiers: Number(event.modifiers),
+          held_keycodes: heldKeycodeList()
+        }
+        detectedText = "Detected “" + printableCharacter(produced) + "”. Release the keys to choose an override or try again…"
       }
     }
   }
@@ -361,8 +392,33 @@ Item {
         )
         matchedCharacter = null
         advanceCharacter()
+      } else if (conflictCharacter && heldCount === 0) {
+        detectedText = "Detected “" + printableCharacter(conflictCharacter.actual)
+          + "”. Use this key for “" + printableCharacter(currentCharacter.character)
+          + "”, or type another chord."
       }
     }
+  }
+
+  function heldKeycodeList() {
+    var codes = []
+    for (var keycode in heldKeys) {
+      if (heldKeys[keycode]) codes.push(Number(keycode))
+    }
+    return codes
+  }
+
+  function isCapturedModifierKey(keycode) {
+    var modifierNames = [
+      "left_shift", "right_shift", "left_ctrl", "right_ctrl",
+      "left_alt", "right_alt", "left_super", "right_super"
+    ]
+    for (var index = 0; index < modifierNames.length; index++) {
+      var capture = modifierCaptures[modifierNames[index]]
+      if (capture && !capture.skipped && Number(capture.keycode) === Number(keycode))
+        return true
+    }
+    return false
   }
 
   function advanceModifier() {
@@ -406,8 +462,23 @@ Item {
     }
   }
 
+  function acceptCharacterOverride() {
+    if (captureMode !== "character" || !conflictCharacter || heldCount !== 0) return
+    var capture = ({})
+    for (var field in conflictCharacter) capture[field] = conflictCharacter[field]
+    capture.override = true
+    capture.expected = String(currentCharacter.character || "")
+    characterCaptures = copyWithValue(
+      characterCaptures,
+      String(currentCharacter.key),
+      capture
+    )
+    advanceCharacter()
+  }
+
   function printableCharacter(value) {
     var text = String(value || "")
+    if (text === "") return "no text"
     if (text === "\\") return "backslash"
     if (text === " ") return "Space"
     return text.replace(/\n/g, "\\n").replace(/\t/g, "\\t")
@@ -434,9 +505,12 @@ Item {
     reviewData = {
       ok: false,
       correction_options: [],
+      override_errors: [],
       warnings: [],
       character_results: [],
       character_pass_count: 0,
+      character_override_count: 0,
+      character_overrides: [],
       character_total: 0
     }
     reviewHandled = false
@@ -882,7 +956,8 @@ Item {
                   }
                   Text {
                     Layout.fillWidth: true
-                    text: root.currentCharacter.hint || "Type the requested character"
+                    text: (root.currentCharacter.hint || "Type the requested character")
+                      + ". If the key produces something else, you can override that chord."
                     color: Util.alpha(Color.popups.text, 0.68)
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.WordWrap
@@ -912,6 +987,13 @@ Item {
                   onClicked: root.restartCapture()
                 }
                 Item { Layout.fillWidth: true }
+                Button {
+                  visible: root.conflictCharacter !== null && root.heldCount === 0
+                  text: "Use this key for " + String(root.currentCharacter.label || "character")
+                  active: true
+                  bordered: true
+                  onClicked: root.acceptCharacterOverride()
+                }
                 Button {
                   text: "Skip this character"
                   bordered: true
@@ -994,8 +1076,9 @@ Item {
                       }
                       Text {
                         Layout.fillWidth: true
-                        text: "Characters verified: " + Number(root.reviewData.character_pass_count || 0)
-                          + " / " + Number(root.reviewData.character_total || 0)
+                        text: "Characters: " + Number(root.reviewData.character_pass_count || 0)
+                          + " verified, " + Number(root.reviewData.character_override_count || 0)
+                          + " overridden / " + Number(root.reviewData.character_total || 0)
                         color: Color.popups.text
                         font.family: Style.font.family
                         font.pixelSize: Style.font.body
@@ -1012,22 +1095,26 @@ Item {
                       model: root.reviewData.character_results || []
                       delegate: BorderSurface {
                         required property var modelData
+                        readonly property bool resolved: modelData.status === "correct"
+                          || modelData.status === "will be overridden"
                         width: Math.max(Style.space(52), chipText.implicitWidth + Style.space(22))
                         height: Style.space(38)
-                        color: modelData.status === "correct"
+                        color: resolved
                           ? Style.selectedFillFor(Color.popups.text, Color.accent)
                           : Util.alpha(Color.urgent, 0.16)
                         borderSpec: Border.controlSpec(
-                          modelData.status === "correct" ? "selected" : "normal",
-                          modelData.status === "correct" ? Color.popups.text : Color.urgent,
+                          resolved ? "selected" : "normal",
+                          resolved ? Color.popups.text : Color.urgent,
                           Color.accent
                         )
                         radius: Style.cornerRadius
                         Text {
                           id: chipText
                           anchors.centerIn: parent
-                          text: String(modelData.label) + (modelData.status === "correct" ? "  ✓" : "  !")
-                          color: modelData.status === "correct" ? Color.popups.text : Color.urgent
+                          text: String(modelData.label)
+                            + (modelData.status === "correct" ? "  ✓"
+                              : (modelData.status === "will be overridden" ? "  ↻" : "  !"))
+                          color: resolved ? Color.popups.text : Color.urgent
                           font.family: Style.font.family
                           font.pixelSize: Style.font.body
                         }
@@ -1096,7 +1183,7 @@ Item {
               }
               Text {
                 Layout.fillWidth: true
-                text: "Creating a backup, writing the device override, reloading Hyprland, and checking configerrors."
+                text: "Creating backups, generating any custom XKB symbols, reloading Hyprland, and checking configerrors."
                 color: Util.alpha(Color.popups.text, 0.66)
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WordWrap

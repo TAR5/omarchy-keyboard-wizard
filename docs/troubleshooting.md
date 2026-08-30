@@ -32,9 +32,20 @@ waits for the entire chord to be released. On a dead-key layout, tilde may need
 the tilde dead key followed by Space.
 
 The panel compares the actual text produced by the selected XKB layout. If the
-wrong symbol appears, return to setup and try another layout or variant. You can
-also skip the character and apply the layout with a warning; the wizard does not
-guess at a character remap.
+wrong symbol appears—or the chord produces no text—release the chord and choose
+**Use this key for …** to create an override. You can instead type another chord,
+or skip the character and apply the layout with a warning. Overrides affect only
+the primary layout.
+
+## A character override is rejected
+
+Character overrides support normal, Shift, Right Alt/AltGr, and
+Shift+Right-Alt levels. Ctrl, left-Alt, and Super/Meta chords are rejected. A
+single physical chord can produce only one character, so assigning two requested
+characters to the same chord is also rejected during review.
+
+If `xkbcli` rejects the generated keymap, select a standard layout/variant and
+scan again. No configuration is written until the generated keymap compiles.
 
 ## The panel does not receive bare modifier keys
 
@@ -75,8 +86,9 @@ No output from `hyprctl configerrors` means the configuration is clean.
 Backups are stored beside the input file:
 
 ```text
-~/.config/hypr/input.lua.keyboard-wizard.bak.YYYYMMDD-HHMMSS
+~/.config/hypr/input.lua.keyboard-wizard.bak.YYYYMMDD-HHMMSS-ffffff
+~/.config/hypr/keyboard-wizard/*.xkb.keyboard-wizard.bak.YYYYMMDD-HHMMSS-ffffff
 ```
 
-Copy the desired backup over `~/.config/hypr/input.lua`, then run the validation
-commands above.
+Restore both the desired keymap backup (when `kb_file` is present) and the input
+configuration backup, then run the validation commands above.

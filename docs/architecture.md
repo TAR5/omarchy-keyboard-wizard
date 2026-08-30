@@ -29,8 +29,10 @@ multiple presses; for example, tilde may be composed by pressing its dead key
 and then Space.
 
 The verified set is `@ { } [ ] > < | ~` and backslash (`\`). These captures are
-diagnostic: the chosen XKB layout and variant remain responsible for producing
-the characters.
+diagnostic when the chosen XKB layout produces the character. For a mismatch or
+a chord that produces no text, the panel retains the produced text, target scan
+code, Qt modifier mask, and all held scan codes. Nothing is remapped until the
+user selects **Use this key**.
 
 ## Python backend
 
@@ -72,6 +74,25 @@ Recognized pair swaps are translated to standard `xkeyboard-config` options:
 
 Unrecognized mappings are reported during review instead of being guessed.
 
+### Character overrides
+
+Accepted character conflicts are compiled into a complete, device-specific XKB
+keymap. The backend:
+
+1. Compiles the selected layouts, variants, options, and modifier corrections
+   with `xkbcli compile-keymap`.
+2. Resolves the captured native scan code to its symbolic XKB key name.
+3. Derives level 1–4 from the held Shift and Right Alt/AltGr scan codes, with
+   the Qt modifier flags as a fallback.
+4. Replaces only that level in group 1, preserving secondary-layout symbols.
+5. Compiles the result again with `xkbcli --test` before allowing it to be
+   written.
+
+Ctrl, left-Alt, Super/Meta, missing keycodes, and two characters assigned to the
+same chord are rejected during review. Hyprland loads the result through the
+device's `kb_file` setting. No background remapper or privileged service is
+used.
+
 ## Configuration safety
 
 Each keyboard gets a generated block identified by a short SHA-256 digest of
@@ -80,12 +101,14 @@ block.
 
 The write path is:
 
-1. Read the current `~/.config/hypr/input.lua`.
-2. Create a timestamped backup next to it.
-3. Write the updated content to a temporary file in the same directory.
-4. Atomically replace the configuration file.
+1. Generate and validate any required keymap entirely in memory.
+2. Read the current keymap and `~/.config/hypr/input.lua`.
+3. Create timestamped backups for files that already exist.
+4. Write each generated file through a temporary file in the same directory and
+   atomically replace it.
 5. Run `hyprctl reload` and `hyprctl configerrors`.
-6. Restore the previous content and reload again if Hyprland reports errors.
+6. Restore both the previous keymap and input configuration, then reload again,
+   if Hyprland reports errors.
 
 If the compositor socket cannot be reached, the file is retained and the user
 is shown the exact manual validation commands.

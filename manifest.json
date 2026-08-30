@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "tar5.keyboard-wizard",
   "name": "Keyboard Setup",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "author": "TAR5",
   "description": "Guided keyboard layout, modifier, and punctuation calibration for Omarchy",
   "kinds": [

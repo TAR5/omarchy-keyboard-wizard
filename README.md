@@ -21,21 +21,24 @@ Quickshell can capture each physical scan code directly.
 - Verifies the actual text output for `@ { } [ ] > < | ~` and backslash (`\`).
 - Handles shifted, AltGr, and dead-key sequences by waiting until every key in
   the chord has been released.
+- Offers an explicit **Use this key** action when a chord produces the wrong
+  character or no text, generating a device-specific XKB override for the
+  primary layout.
 - Writes a device-specific `hl.device` override to `~/.config/hypr/input.lua`.
 - Preserves existing settings, creates a timestamped backup, reloads Hyprland,
   checks `hyprctl configerrors`, and rolls back automatically on validation
   errors.
 
-The character walkthrough validates the selected XKB layout; it does not invent
-per-character remaps. A mismatch is shown on the review screen so the layout or
-variant can be changed safely.
+The character walkthrough validates the selected XKB layout. A mismatch can be
+retried, skipped, or deliberately overridden. Overrides are never inferred: the
+wizard uses only the physical chord confirmed with **Use this key**.
 
 ## Requirements
 
 - A current Omarchy installation with `omarchy-shell`
 - Quickshell 0.3 or newer
 - Python 3 (standard library only)
-- Hyprland, `hyprctl`, and `xkeyboard-config`
+- Hyprland, `hyprctl`, `xkeyboard-config`, and `xkbcli`
 
 These are present on a standard current Omarchy installation.
 
@@ -89,6 +92,21 @@ settings are left in place. Backups are stored beside the config as:
 ~/.config/hypr/input.lua.keyboard-wizard.bak.YYYYMMDD-HHMMSS-ffffff
 ```
 
+When at least one character override is accepted, the device block uses a
+complete custom keymap instead:
+
+```lua
+hl.device({
+  name = "example-keyboard",
+  kb_file = "/home/example/.config/hypr/keyboard-wizard/012345abcdef.xkb",
+})
+```
+
+The keymap is compiled from the selected layout, variant, secondary layout,
+switching option, and detected modifier corrections. Only the confirmed levels
+in the primary layout are changed. It is validated with `xkbcli` before being
+written. Existing keymaps receive timestamped backups beside the `.xkb` file.
+
 ## Development
 
 Validate the backend, tests, plugin manifest, and QML:
@@ -109,8 +127,8 @@ See [Architecture](docs/architecture.md) and
 ./uninstall.sh
 ```
 
-Uninstalling removes the plugin and launchers. Generated Hyprland settings and
-backups are intentionally preserved.
+Uninstalling removes the plugin and launchers. Generated Hyprland settings,
+custom keymaps, and backups are intentionally preserved.
 
 ## License
 

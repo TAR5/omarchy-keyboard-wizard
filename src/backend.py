@@ -18,8 +18,28 @@ from typing import Any
 
 
 INPUT_CONFIG = Path.home() / ".config/hypr/input.lua"
+KEYMAP_DIR = Path.home() / ".config/hypr/keyboard-wizard"
 XKB_RULES = Path("/usr/share/X11/xkb/rules/evdev.lst")
 DEFAULT_OPTIONS = ["compose:caps", "shift:both_capslock_cancel"]
+
+QT_SHIFT_MODIFIER = 0x02000000
+QT_CONTROL_MODIFIER = 0x04000000
+QT_ALT_MODIFIER = 0x08000000
+QT_META_MODIFIER = 0x10000000
+QT_GROUP_SWITCH_MODIFIER = 0x40000000
+
+CHARACTER_KEYSYMS = {
+    "@": "at",
+    "{": "braceleft",
+    "}": "braceright",
+    "[": "bracketleft",
+    "]": "bracketright",
+    ">": "greater",
+    "<": "less",
+    "|": "bar",
+    "~": "asciitilde",
+    "\\": "backslash",
+}
 
 SWITCH_OPTIONS = [
     {"label": "Alt + Shift", "value": "grp:alt_shift_toggle"},
@@ -274,8 +294,8 @@ analyze_captures = analyze_modifier_captures
 
 def analyze_character_captures(
     captures: dict[str, dict[str, Any]],
-) -> tuple[list[dict[str, str]], list[str]]:
-    results: list[dict[str, str]] = []
+) -> tuple[list[dict[str, Any]], list[str]]:
+    results: list[dict[str, Any]] = []
     warnings: list[str] = []
     for step in CHARACTER_STEPS:
         capture = captures.get(step.key, {})
@@ -286,6 +306,8 @@ def analyze_character_captures(
             warnings.append(f"Character {step.label} was not verified.")
         elif step.character in actual:
             status = "correct"
+        elif capture.get("override") and capture.get("keycode") is not None:
+            status = "will be overridden"
         else:
             status = "needs attention"
             shown = actual if actual else "no text"
@@ -298,6 +320,128 @@ def analyze_character_captures(
             "status": status,
         })
     return results, warnings
+
+
+def _captured_keycodes(
+    captures: dict[str, dict[str, Any]], keys: tuple[str, ...]
+) -> set[int]:
+    codes: set[int] = set()
+    for key in keys:
+        capture = captures.get(key, {})
+        if not isinstance(capture, dict) or capture.get("skipped"):
+            continue
+        try:
+            codes.add(int(capture["keycode"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return codes
+
+
+def override_level(
+    capture: dict[str, Any], modifier_captures: dict[str, dict[str, Any]]
+) -> int:
+    """Return the XKB shift level (1-4) represented by a captured chord."""
+    try:
+        modifiers = int(capture.get("modifiers", 0))
+    except (TypeError, ValueError):
+        modifiers = 0
+
+    held: set[int] = set()
+    raw_held = capture.get("held_keycodes", [])
+    if isinstance(raw_held, list):
+        for value in raw_held:
+            try:
+                held.add(int(value))
+            except (TypeError, ValueError):
+                continue
+
+    shift_codes = _captured_keycodes(
+        modifier_captures, ("left_shift", "right_shift")
+    )
+    control_codes = _captured_keycodes(
+        modifier_captures, ("left_ctrl", "right_ctrl")
+    )
+    left_alt_codes = _captured_keycodes(modifier_captures, ("left_alt",))
+    level_three_codes = _captured_keycodes(modifier_captures, ("right_alt",))
+    meta_codes = _captured_keycodes(
+        modifier_captures, ("left_super", "right_super")
+    )
+
+    if held & meta_codes or modifiers & QT_META_MODIFIER:
+        raise ValueError("Super/Meta chords cannot be used for character overrides.")
+    if held & control_codes:
+        raise ValueError("Ctrl chords cannot be used for character overrides.")
+    if held & left_alt_codes:
+        raise ValueError(
+            "Left Alt chords cannot be used for character overrides; use Right Alt/AltGr."
+        )
+
+    shift = bool(held & shift_codes) or bool(modifiers & QT_SHIFT_MODIFIER)
+    level_three = (
+        bool(held & level_three_codes)
+        or bool(modifiers & QT_GROUP_SWITCH_MODIFIER)
+        or bool(
+            modifiers & QT_CONTROL_MODIFIER
+            and modifiers & QT_ALT_MODIFIER
+        )
+    )
+
+    if modifiers & QT_CONTROL_MODIFIER and not level_three:
+        raise ValueError("Ctrl chords cannot be used for character overrides.")
+    if modifiers & QT_ALT_MODIFIER and not level_three:
+        raise ValueError(
+            "Left Alt chords cannot be used for character overrides; use Right Alt/AltGr."
+        )
+
+    if level_three:
+        return 4 if shift else 3
+    return 2 if shift else 1
+
+
+def collect_character_overrides(
+    character_captures: dict[str, dict[str, Any]],
+    modifier_captures: dict[str, dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    overrides: list[dict[str, Any]] = []
+    errors: list[str] = []
+    occupied: dict[tuple[int, int], str] = {}
+
+    for step in CHARACTER_STEPS:
+        capture = character_captures.get(step.key, {})
+        if not isinstance(capture, dict) or not capture.get("override"):
+            continue
+        try:
+            keycode = int(capture["keycode"])
+            if keycode <= 0:
+                raise ValueError
+        except (KeyError, TypeError, ValueError):
+            errors.append(f"Character {step.label} has no usable physical keycode.")
+            continue
+        try:
+            level = override_level(capture, modifier_captures)
+        except ValueError as exc:
+            errors.append(f"Character {step.label}: {exc}")
+            continue
+
+        chord = (keycode, level)
+        previous = occupied.get(chord)
+        if previous and previous != step.character:
+            errors.append(
+                f"Characters {previous!r} and {step.character!r} were assigned to the same key chord."
+            )
+            continue
+        occupied[chord] = step.character
+        overrides.append({
+            "key": step.key,
+            "label": step.label,
+            "character": step.character,
+            "keysym": CHARACTER_KEYSYMS[step.character],
+            "keycode": keycode,
+            "level": level,
+            "actual": str(capture.get("actual", "")),
+        })
+
+    return overrides, errors
 
 
 def build_review(payload: dict[str, Any]) -> dict[str, Any]:
@@ -313,6 +457,9 @@ def build_review(payload: dict[str, Any]) -> dict[str, Any]:
 
     options, modifier_warnings, repaired = analyze_modifier_captures(modifiers)
     character_results, character_warnings = analyze_character_captures(characters)
+    character_overrides, override_errors = collect_character_overrides(
+        characters, modifiers
+    )
 
     modifier_results: list[dict[str, Any]] = []
     for step in KEY_STEPS:
@@ -339,13 +486,16 @@ def build_review(payload: dict[str, Any]) -> dict[str, Any]:
         })
 
     return {
-        "ok": True,
+        "ok": not override_errors,
         "correction_options": options,
-        "warnings": modifier_warnings + character_warnings,
+        "override_errors": override_errors,
+        "warnings": modifier_warnings + character_warnings + override_errors,
         "modifier_results": modifier_results,
         "character_results": character_results,
         "character_pass_count": sum(result["status"] == "correct" for result in character_results),
+        "character_override_count": len(character_overrides),
         "character_total": len(CHARACTER_STEPS),
+        "character_overrides": character_overrides,
     }
 
 
@@ -383,17 +533,13 @@ def lua_quote(value: str) -> str:
     return f'"{escaped}"'
 
 
-def render_device_block(
-    device_name: str,
+def keyboard_values(
     primary_layout: str,
     primary_variant: str,
     secondary_layout: str,
     switch_option: str,
     correction_options: list[str],
-) -> tuple[str, str, str]:
-    digest = hashlib.sha256(device_name.encode("utf-8")).hexdigest()[:12]
-    begin = f"-- BEGIN OMARCHY KEYBOARD WIZARD {digest}"
-    end = f"-- END OMARCHY KEYBOARD WIZARD {digest}"
+) -> tuple[str, str, list[str]]:
     layouts = primary_layout
     variants = primary_variant
     options = list(DEFAULT_OPTIONS) + correction_options
@@ -401,19 +547,183 @@ def render_device_block(
         layouts += f",{secondary_layout}"
         variants += ","
         options.append(switch_option)
-    options = list(dict.fromkeys(option for option in options if option))
-    block = "\n".join([
+    return layouts, variants, list(dict.fromkeys(option for option in options if option))
+
+
+def render_device_block(
+    device_name: str,
+    primary_layout: str,
+    primary_variant: str,
+    secondary_layout: str,
+    switch_option: str,
+    correction_options: list[str],
+    keymap_path: Path | None = None,
+) -> tuple[str, str, str]:
+    digest = hashlib.sha256(device_name.encode("utf-8")).hexdigest()[:12]
+    begin = f"-- BEGIN OMARCHY KEYBOARD WIZARD {digest}"
+    end = f"-- END OMARCHY KEYBOARD WIZARD {digest}"
+    layouts, variants, options = keyboard_values(
+        primary_layout,
+        primary_variant,
+        secondary_layout,
+        switch_option,
+        correction_options,
+    )
+    lines = [
         begin,
         "-- Generated by Keyboard Setup. Re-run the wizard to update this block.",
         "hl.device({",
         f"  name = {lua_quote(device_name)},",
-        f"  kb_layout = {lua_quote(layouts)},",
-        f"  kb_variant = {lua_quote(variants)},",
-        f"  kb_options = {lua_quote(','.join(options))},",
-        "})",
-        end,
-    ])
+    ]
+    if keymap_path is not None:
+        lines.append(f"  kb_file = {lua_quote(str(keymap_path))},")
+    else:
+        lines.extend([
+            f"  kb_layout = {lua_quote(layouts)},",
+            f"  kb_variant = {lua_quote(variants)},",
+            f"  kb_options = {lua_quote(','.join(options))},",
+        ])
+    lines.extend(["})", end])
+    block = "\n".join(lines)
     return begin, end, block
+
+
+def custom_keymap_path(device_name: str) -> Path:
+    digest = hashlib.sha256(device_name.encode("utf-8")).hexdigest()[:12]
+    return KEYMAP_DIR / f"{digest}.xkb"
+
+
+def compile_base_keymap(
+    primary_layout: str,
+    primary_variant: str,
+    secondary_layout: str,
+    switch_option: str,
+    correction_options: list[str],
+) -> str:
+    layouts, variants, options = keyboard_values(
+        primary_layout,
+        primary_variant,
+        secondary_layout,
+        switch_option,
+        correction_options,
+    )
+    command = ["xkbcli", "compile-keymap", "--layout", layouts]
+    if variants:
+        command.extend(["--variant", variants])
+    if options:
+        command.extend(["--options", ",".join(options)])
+    try:
+        result = run(command, timeout=12)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ValueError(f"Could not run xkbcli: {exc}") from exc
+    if result.returncode != 0 or not result.stdout.strip():
+        detail = (result.stderr or result.stdout).strip()
+        raise ValueError(detail or "xkbcli could not compile the selected layout.")
+    return result.stdout
+
+
+def _split_symbols(raw: str) -> list[str]:
+    symbols: list[str] = []
+    start = 0
+    depth = 0
+    quoted = False
+    escaped = False
+    for index, character in enumerate(raw):
+        if escaped:
+            escaped = False
+            continue
+        if character == "\\" and quoted:
+            escaped = True
+        elif character == '"':
+            quoted = not quoted
+        elif not quoted and character == "{":
+            depth += 1
+        elif not quoted and character == "}":
+            depth = max(0, depth - 1)
+        elif not quoted and character == "," and depth == 0:
+            symbols.append(raw[start:index].strip())
+            start = index + 1
+    symbols.append(raw[start:].strip())
+    return symbols
+
+
+def apply_symbol_overrides(keymap: str, overrides: list[dict[str, Any]]) -> str:
+    keycode_names = {
+        int(value): name
+        for name, value in re.findall(r"<([A-Za-z0-9_]+)>\s*=\s*(\d+)\s*;", keymap)
+    }
+    updated = keymap
+    for override in overrides:
+        keycode = int(override["keycode"])
+        key_name = keycode_names.get(keycode)
+        if not key_name:
+            raise ValueError(f"XKB keycode {keycode} is not present in the compiled keymap.")
+
+        key_pattern = re.compile(
+            rf"(\bkey\s+<{re.escape(key_name)}>\s*\{{)(.*?)(\}}\s*;)",
+            re.DOTALL,
+        )
+        key_match = key_pattern.search(updated)
+        if not key_match:
+            raise ValueError(f"Could not find the symbols for XKB key <{key_name}>.")
+        body = key_match.group(2)
+        group_pattern = re.compile(r"(symbols\s*\[\s*1\s*\]\s*=\s*\[)([^\]]*)(\])")
+        symbols_match = group_pattern.search(body)
+        if not symbols_match:
+            group_pattern = re.compile(r"(\[)([^\]]*)(\])")
+            symbols_match = group_pattern.search(body)
+        if not symbols_match:
+            raise ValueError(f"Could not read the symbols for XKB key <{key_name}>.")
+
+        symbols = _split_symbols(symbols_match.group(2))
+        level_index = int(override["level"]) - 1
+        while len(symbols) <= level_index:
+            symbols.append("NoSymbol")
+        symbols[level_index] = str(override["keysym"])
+        replacement = (
+            symbols_match.group(1)
+            + " "
+            + ", ".join(symbols)
+            + " "
+            + symbols_match.group(3)
+        )
+        body = body[:symbols_match.start()] + replacement + body[symbols_match.end():]
+        updated = updated[:key_match.start(2)] + body + updated[key_match.end(2):]
+    return updated
+
+
+def validate_keymap_text(keymap: str) -> None:
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", suffix=".xkb", delete=False
+        ) as handle:
+            handle.write(keymap)
+            temporary = Path(handle.name)
+        result = run(
+            ["xkbcli", "compile-keymap", "--keymap", str(temporary), "--test"],
+            timeout=12,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ValueError(f"Could not validate the generated XKB keymap: {exc}") from exc
+    finally:
+        if "temporary" in locals():
+            temporary.unlink(missing_ok=True)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip()
+        raise ValueError(detail or "The generated XKB keymap is invalid.")
+
+
+def generate_custom_keymap(payload: dict[str, Any], review: dict[str, Any]) -> str:
+    keymap = compile_base_keymap(
+        str(payload["primary_layout"]),
+        str(payload.get("primary_variant", "")),
+        str(payload.get("secondary_layout", "")),
+        str(payload.get("switch_option", "")),
+        list(review["correction_options"]),
+    )
+    keymap = apply_symbol_overrides(keymap, list(review["character_overrides"]))
+    validate_keymap_text(keymap)
+    return keymap
 
 
 def update_generated_block(path: Path, begin: str, end: str, block: str) -> tuple[Path, str]:
@@ -447,7 +757,37 @@ def update_generated_block(path: Path, begin: str, end: str, block: str) -> tupl
     return backup, original
 
 
+def write_generated_file(path: Path, content: str) -> tuple[Path | None, str | None]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    original = path.read_text(encoding="utf-8") if path.exists() else None
+    backup: Path | None = None
+    if original is not None:
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        backup = path.with_name(f"{path.name}.keyboard-wizard.bak.{timestamp}")
+        shutil.copy2(path, backup)
+
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        delete=False,
+    ) as handle:
+        handle.write(content)
+        temporary = Path(handle.name)
+    temporary.chmod(path.stat().st_mode if path.exists() else 0o644)
+    os.replace(temporary, path)
+    return backup, original
+
+
 def restore_config(path: Path, original: str) -> None:
+    path.write_text(original, encoding="utf-8")
+
+
+def restore_generated_file(path: Path, original: str | None) -> None:
+    if original is None:
+        path.unlink(missing_ok=True)
+        return
     path.write_text(original, encoding="utf-8")
 
 
@@ -497,6 +837,28 @@ def apply_payload(payload: dict[str, Any], path: Path = INPUT_CONFIG) -> dict[st
         return {"ok": False, "status": "invalid", "title": "Invalid configuration", "message": error}
 
     review = build_review(payload)
+    if not review["ok"]:
+        return {
+            "ok": False,
+            "status": "invalid-overrides",
+            "title": "Invalid character overrides",
+            "message": "\n".join(review["override_errors"]),
+        }
+
+    keymap_path: Path | None = None
+    keymap_text: str | None = None
+    if review["character_overrides"]:
+        keymap_path = custom_keymap_path(str(payload["device_name"]))
+        try:
+            keymap_text = generate_custom_keymap(payload, review)
+        except ValueError as exc:
+            return {
+                "ok": False,
+                "status": "keymap-error",
+                "title": "Could not build character overrides",
+                "message": str(exc),
+            }
+
     begin, end, block = render_device_block(
         str(payload["device_name"]),
         str(payload["primary_layout"]),
@@ -504,25 +866,47 @@ def apply_payload(payload: dict[str, Any], path: Path = INPUT_CONFIG) -> dict[st
         str(payload.get("secondary_layout", "")),
         str(payload.get("switch_option", "")),
         review["correction_options"],
+        keymap_path,
     )
+
+    keymap_backup: Path | None = None
+    keymap_original: str | None = None
     try:
+        if keymap_path is not None and keymap_text is not None:
+            keymap_backup, keymap_original = write_generated_file(
+                keymap_path, keymap_text
+            )
         backup, original = update_generated_block(path, begin, end, block)
     except OSError as exc:
+        rollback_error = ""
+        if keymap_path is not None:
+            try:
+                restore_generated_file(keymap_path, keymap_original)
+            except OSError as restore_exc:
+                rollback_error = f"\n\nRestoring the previous keymap also failed: {restore_exc}"
         return {
             "ok": False,
             "status": "write-error",
             "title": "Could not save the configuration",
-            "message": str(exc),
+            "message": str(exc) + rollback_error,
         }
 
     status, detail = validate_hyprland()
     if status == "errors":
         try:
             restore_config(path, original)
+            if keymap_path is not None:
+                restore_generated_file(keymap_path, keymap_original)
             validate_hyprland()
-            message = f"Hyprland reported errors, so the previous file was restored.\n\n{detail}"
+            message = (
+                "Hyprland reported errors, so the previous configuration was restored."
+                f"\n\n{detail}"
+            )
         except OSError as exc:
-            message = f"Hyprland reported errors and restoring the previous file failed.\n\n{detail}\n\n{exc}"
+            message = (
+                "Hyprland reported errors and restoring the previous configuration failed."
+                f"\n\n{detail}\n\n{exc}"
+            )
         return {
             "ok": False,
             "status": "rolled-back",
@@ -530,9 +914,10 @@ def apply_payload(payload: dict[str, Any], path: Path = INPUT_CONFIG) -> dict[st
             "message": message,
             "backup": str(backup),
             "config": str(path),
+            "keymap": str(keymap_path) if keymap_path else "",
         }
     if status == "unavailable":
-        return {
+        response = {
             "ok": True,
             "status": "saved-unvalidated",
             "warning": True,
@@ -544,7 +929,11 @@ def apply_payload(payload: dict[str, Any], path: Path = INPUT_CONFIG) -> dict[st
             "backup": str(backup),
             "config": str(path),
         }
-    return {
+        if keymap_path is not None:
+            response["keymap"] = str(keymap_path)
+            response["keymap_backup"] = str(keymap_backup) if keymap_backup else ""
+        return response
+    response = {
         "ok": True,
         "status": "applied",
         "warning": False,
@@ -553,6 +942,10 @@ def apply_payload(payload: dict[str, Any], path: Path = INPUT_CONFIG) -> dict[st
         "backup": str(backup),
         "config": str(path),
     }
+    if keymap_path is not None:
+        response["keymap"] = str(keymap_path)
+        response["keymap_backup"] = str(keymap_backup) if keymap_backup else ""
+    return response
 
 
 def parse_payload(raw: str) -> dict[str, Any]:
