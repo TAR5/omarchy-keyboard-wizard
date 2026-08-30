@@ -226,6 +226,68 @@ xkb_keymap {
         self.assertIn("symbols[1]= [ e, E, at, EuroSign ]", updated)
         self.assertIn("symbols[2]= [ e, E ]", updated)
 
+    def test_force_level_three_key_reassigns_modifier(self):
+        fixture = """\
+xkb_keymap {
+  xkb_keycodes "test" {
+    <LVL3> = 92;
+    <RWIN> = 134;
+  };
+  xkb_types "test" {
+    type "ONE_LEVEL" { modifiers = none; level_name[Level1] = "Any"; };
+  };
+  xkb_compatibility "test" {};
+  xkb_symbols "test" {
+    key <LVL3> { [ ISO_Level3_Shift ] };
+    key <RWIN> { [ Alt_R, Meta_R ] };
+    modifier_map Mod1 { <RWIN> };
+    modifier_map Mod5 { <LVL3> };
+  };
+};
+"""
+        updated = wizard.force_level_three_key(fixture, 134)
+
+        self.assertIn("symbols[1]= [ ISO_Level3_Shift ]", updated)
+        self.assertIn("modifier_map Mod1 {  };", updated)
+        self.assertIn("modifier_map Mod5 { <LVL3>, <RWIN> };", updated)
+
+    def test_generate_custom_keymap_preserves_captured_altgr(self):
+        fixture = """\
+xkb_keymap {
+  xkb_keycodes "test" {
+    <AD03> = 26;
+    <LVL3> = 92;
+    <RWIN> = 134;
+  };
+  xkb_symbols "test" {
+    key <AD03> { [ e, E, EuroSign, EuroSign ] };
+    key <LVL3> { [ ISO_Level3_Shift ] };
+    key <RWIN> { [ Alt_R, Meta_R ] };
+    modifier_map Mod1 { <RWIN> };
+    modifier_map Mod5 { <LVL3> };
+  };
+};
+"""
+        payload = self.normal_payload()
+        payload["captures"]["modifiers"]["right_alt"]["keycode"] = 134
+        review = {
+            "correction_options": ["altwin:swap_alt_win"],
+            "character_overrides": [{
+                "keycode": 26,
+                "level": 3,
+                "keysym": "at",
+            }],
+        }
+        with (
+            mock.patch.object(wizard, "compile_base_keymap", return_value=fixture),
+            mock.patch.object(wizard, "validate_keymap_text"),
+        ):
+            generated = wizard.generate_custom_keymap(payload, review)
+
+        self.assertIn("symbols[1]= [ ISO_Level3_Shift ]", generated)
+        self.assertIn("modifier_map Mod5 { <LVL3>, <RWIN> };", generated)
+        self.assertIn("[ e, E, at, EuroSign ]", generated)
+
     def test_custom_keymap_block_uses_kb_file(self):
         _begin, _end, block = wizard.render_device_block(
             "example-keyboard",

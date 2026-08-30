@@ -50,6 +50,10 @@ characters to the same chord is also rejected during review.
 If `xkbcli` rejects the generated keymap, select a standard layout/variant and
 scan again. No configuration is written until the generated keymap compiles.
 
+For level-3 and level-4 overrides, the wizard explicitly maps the calibrated
+physical Right Alt/AltGr key to `ISO_Level3_Shift`. This prevents Mac-style
+firmware Alt/Super swaps from making the generated character levels unreachable.
+
 ## The panel does not receive bare modifier keys
 
 Make sure the plugin is opened through `omarchy-shell`, not by running the QML

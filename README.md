@@ -106,8 +106,11 @@ hl.device({
 
 The keymap is compiled from the selected layout, variant, secondary layout,
 switching option, and detected modifier corrections. Only the confirmed levels
-in the primary layout are changed. It is validated with `xkbcli` before being
-written. Existing keymaps receive timestamped backups beside the `.xkb` file.
+in the primary layout are changed. When an override uses AltGr, the calibrated
+physical Right Alt/AltGr key is explicitly retained as the XKB Level-3 selector,
+even on firmware that swaps Alt and Super. The result is validated with `xkbcli`
+before being written. Existing keymaps receive timestamped backups beside the
+`.xkb` file.
 
 ## Development
 

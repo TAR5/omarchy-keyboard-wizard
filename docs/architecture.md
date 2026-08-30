@@ -84,8 +84,13 @@ keymap. The backend:
 2. Resolves the captured native scan code to its symbolic XKB key name.
 3. Derives level 1–4 from the held Shift and Right Alt/AltGr scan codes, with
    the Qt modifier flags as a fallback.
-4. Replaces only that level in group 1, preserving secondary-layout symbols.
-5. Compiles the result again with `xkbcli --test` before allowing it to be
+4. Forces the calibrated physical Right Alt/AltGr scan code to remain an
+   `ISO_Level3_Shift` key whenever a level 3 or 4 override is present. This is
+   applied after firmware-swap options so Alt/Super-swapped keyboards retain a
+   reachable AltGr level.
+5. Replaces only the confirmed character level in group 1, preserving
+   secondary-layout symbols.
+6. Compiles the result again with `xkbcli --test` before allowing it to be
    written.
 
 Ctrl, left-Alt, Super/Meta, missing keycodes, and two characters assigned to the

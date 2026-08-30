@@ -692,6 +692,63 @@ def apply_symbol_overrides(keymap: str, overrides: list[dict[str, Any]]) -> str:
     return updated
 
 
+def force_level_three_key(keymap: str, keycode: int) -> str:
+    """Make one physical key an ISO Level3/AltGr selector in the compiled map."""
+    keycode_names = {
+        int(value): name
+        for name, value in re.findall(r"<([A-Za-z0-9_]+)>\s*=\s*(\d+)\s*;", keymap)
+    }
+    key_name = keycode_names.get(int(keycode))
+    if not key_name:
+        raise ValueError(
+            f"The captured Right Alt/AltGr keycode {keycode} is not present in the XKB keymap."
+        )
+
+    key_pattern = re.compile(
+        rf"(?m)^(\s*)key\s+<{re.escape(key_name)}>\s*\{{.*?\}}\s*;",
+        re.DOTALL,
+    )
+    key_match = key_pattern.search(keymap)
+    if not key_match:
+        raise ValueError(f"Could not configure XKB key <{key_name}> as AltGr.")
+    indent = key_match.group(1)
+    key_declaration = "\n".join([
+        f"{indent}key <{key_name}>               {{",
+        f'{indent}\ttype= "ONE_LEVEL",',
+        f"{indent}\tsymbols[1]= [ ISO_Level3_Shift ]",
+        f"{indent}}};",
+    ])
+    updated = (
+        keymap[:key_match.start()]
+        + key_declaration
+        + keymap[key_match.end():]
+    )
+
+    modifier_pattern = re.compile(
+        r"(?m)^(\s*)modifier_map\s+([A-Za-z0-9_]+)\s*\{([^}]*)\};"
+    )
+    found_mod5 = False
+    token = f"<{key_name}>"
+
+    def update_modifier(match: re.Match[str]) -> str:
+        nonlocal found_mod5
+        modifier = match.group(2)
+        entries = re.findall(r"<[A-Za-z0-9_]+>", match.group(3))
+        entries = [entry for entry in entries if entry != token]
+        if modifier == "Mod5":
+            found_mod5 = True
+            entries.append(token)
+        return (
+            f"{match.group(1)}modifier_map {modifier} "
+            f"{{ {', '.join(entries)} }};"
+        )
+
+    updated = modifier_pattern.sub(update_modifier, updated)
+    if not found_mod5:
+        raise ValueError("The compiled XKB keymap has no Mod5 modifier map for AltGr.")
+    return updated
+
+
 def validate_keymap_text(keymap: str) -> None:
     try:
         with tempfile.NamedTemporaryFile(
@@ -721,6 +778,23 @@ def generate_custom_keymap(payload: dict[str, Any], review: dict[str, Any]) -> s
         str(payload.get("switch_option", "")),
         list(review["correction_options"]),
     )
+    if any(int(item["level"]) >= 3 for item in review["character_overrides"]):
+        captures = payload.get("captures", {})
+        modifiers = captures.get("modifiers", {}) if isinstance(captures, dict) else {}
+        right_alt = modifiers.get("right_alt", {}) if isinstance(modifiers, dict) else {}
+        if not isinstance(right_alt, dict) or right_alt.get("skipped"):
+            raise ValueError(
+                "Right Alt/AltGr must be calibrated before applying AltGr character overrides."
+            )
+        try:
+            right_alt_keycode = int(right_alt["keycode"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                "The calibrated Right Alt/AltGr key has no usable physical keycode."
+            ) from exc
+        if right_alt_keycode in EXPECTED_CODES.values():
+            right_alt_keycode += 8
+        keymap = force_level_three_key(keymap, right_alt_keycode)
     keymap = apply_symbol_overrides(keymap, list(review["character_overrides"]))
     validate_keymap_text(keymap)
     return keymap
