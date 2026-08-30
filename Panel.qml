@@ -1015,9 +1015,7 @@ Item {
                   }
 
                   Text {
-                    visible: Boolean(
-                      root.reviewData.warnings && root.reviewData.warnings.length > 0
-                    )
+                    visible: (root.reviewData.warnings || []).length > 0
                     Layout.fillWidth: true
                     text: "Needs attention"
                     color: Color.urgent
