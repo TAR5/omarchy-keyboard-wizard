@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location("keyboard_wizard", ROOT / "src/wizard.py")
+SPEC = importlib.util.spec_from_file_location("keyboard_wizard", ROOT / "src/backend.py")
 assert SPEC and SPEC.loader
 wizard = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = wizard
@@ -18,10 +18,21 @@ SPEC.loader.exec_module(wizard)
 
 
 class BackendTests(unittest.TestCase):
-    def normal_captures(self):
+    def normal_modifier_captures(self):
         return {
-            step.key: {"keycode": step.evdev_code + 8, "keyval": "test"}
+            step.key: {"keycode": step.evdev_code + 8, "key": 0}
             for step in wizard.KEY_STEPS
+        }
+
+    def normal_character_captures(self):
+        return {
+            step.key: {
+                "actual": step.character,
+                "keycode": 0,
+                "key": 0,
+                "modifiers": 0,
+            }
+            for step in wizard.CHARACTER_STEPS
         }
 
     def test_parses_layouts_and_variants(self):
@@ -43,13 +54,15 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(variants["de"], [("nodeadkeys", "German (no dead keys)")])
 
     def test_normal_mapping_needs_no_correction(self):
-        options, warnings, repaired = wizard.analyze_captures(self.normal_captures())
+        options, warnings, repaired = wizard.analyze_captures(
+            self.normal_modifier_captures()
+        )
         self.assertEqual(options, [])
         self.assertEqual(warnings, [])
         self.assertEqual(repaired, set())
 
     def test_detects_left_alt_super_swap(self):
-        captures = self.normal_captures()
+        captures = self.normal_modifier_captures()
         captures["left_alt"] = {
             "keycode": wizard.EXPECTED_CODES["left_super"] + 8,
             "keyval": "Super_L",
@@ -63,6 +76,42 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(options, ["altwin:swap_lalt_lwin"])
         self.assertEqual(warnings, [])
         self.assertEqual(repaired, {"left_alt", "left_super"})
+
+    def test_requested_characters_are_all_present_in_order(self):
+        self.assertEqual(
+            [step.character for step in wizard.CHARACTER_STEPS],
+            ["@", "{", "}", "[", "]", ">", "<", "|", "~", "\\"],
+        )
+
+    def test_requested_characters_are_recognized(self):
+        results, warnings = wizard.analyze_character_captures(
+            self.normal_character_captures()
+        )
+        self.assertEqual(warnings, [])
+        self.assertTrue(all(result["status"] == "correct" for result in results))
+
+    def test_character_mismatch_and_skip_are_reported(self):
+        captures = self.normal_character_captures()
+        captures["pipe"] = {"actual": "¦"}
+        captures["backslash"] = {"skipped": True, "actual": ""}
+
+        results, warnings = wizard.analyze_character_captures(captures)
+
+        by_key = {result["key"]: result for result in results}
+        self.assertEqual(by_key["pipe"]["status"], "needs attention")
+        self.assertEqual(by_key["backslash"]["status"], "skipped")
+        self.assertEqual(len(warnings), 2)
+
+    def test_review_counts_all_requested_characters(self):
+        review = wizard.build_review({
+            "captures": {
+                "modifiers": self.normal_modifier_captures(),
+                "characters": self.normal_character_captures(),
+            }
+        })
+        self.assertEqual(review["character_pass_count"], 10)
+        self.assertEqual(review["character_total"], 10)
+        self.assertEqual(review["warnings"], [])
 
     def test_generated_block_is_replaced_not_duplicated(self):
         begin, end, block = wizard.render_device_block(

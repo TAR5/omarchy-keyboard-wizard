@@ -1,15 +1,15 @@
 # Omarchy Keyboard Wizard
 
-A small native Wayland wizard for setting up keyboard layouts and calibrating
-modifier keys on [Omarchy](https://omarchy.org/).
+A focused Quickshell wizard for choosing an XKB layout, calibrating physical
+modifier keys, and verifying hard-to-find punctuation on
+[Omarchy](https://omarchy.org/).
 
 > **AI authorship notice:** This project was written by `gpt-5.6-sol-xhigh`,
 > with human direction and review.
 
 Terminals cannot reliably observe a bare Super, Alt, Ctrl, or Shift press. This
-wizard uses GTK 4 to capture the hardware keycodes directly, so it can guide you
-through prompts such as “Press Super now” and detect common keyboard firmware
-swaps.
+wizard runs as a native Omarchy panel with exclusive keyboard focus, so
+Quickshell can capture each physical scan code directly.
 
 ## Features
 
@@ -18,26 +18,30 @@ swaps.
 - Supports an optional second layout and configurable switching shortcut.
 - Walks through Escape, Caps Lock, both Shifts, Ctrls, Alt/Super keys, and Space.
 - Detects common Alt/Super, Ctrl, Caps Lock, and Escape swaps.
+- Verifies the actual text output for `@ { } [ ] > < | ~` and backslash (`\`).
+- Handles shifted, AltGr, and dead-key sequences by waiting until every key in
+  the chord has been released.
 - Writes a device-specific `hl.device` override to `~/.config/hypr/input.lua`.
-- Preserves existing settings and maintains one generated block per keyboard.
-- Creates a timestamped backup before every change.
-- Reloads Hyprland, checks `hyprctl configerrors`, and restores the previous
-  configuration automatically if validation fails.
+- Preserves existing settings, creates a timestamped backup, reloads Hyprland,
+  checks `hyprctl configerrors`, and rolls back automatically on validation
+  errors.
 
-Letters, numbers, punctuation, and national symbols are handled by the chosen
-XKB layout rather than remapped one key at a time.
+The character walkthrough validates the selected XKB layout; it does not invent
+per-character remaps. A mismatch is shown on the review screen so the layout or
+variant can be changed safely.
 
 ## Requirements
 
-- Omarchy with its Lua-based Hyprland configuration
-- Python 3
-- GTK 4 and libadwaita with PyGObject bindings
-- Hyprland and `hyprctl`
-- `xkeyboard-config`
+- A current Omarchy installation with `omarchy-shell`
+- Quickshell 0.3 or newer
+- Python 3 (standard library only)
+- Hyprland, `hyprctl`, and `xkeyboard-config`
 
 These are present on a standard current Omarchy installation.
 
 ## Install
+
+For the Omarchy plugin plus an application-launcher entry:
 
 ```bash
 git clone https://github.com/TAR5/omarchy-keyboard-wizard.git
@@ -45,15 +49,21 @@ cd omarchy-keyboard-wizard
 ./install.sh
 ```
 
-Open **Keyboard Setup** from the application launcher, or run:
+Or install only the panel plugin:
 
 ```bash
-omarchy-keyboard-wizard
+omarchy plugin add https://github.com/TAR5/omarchy-keyboard-wizard.git --enable
 ```
 
-The installer places files only in `~/.local/bin` and `$XDG_DATA_HOME` (which
-defaults to `~/.local/share`). It does not alter the Hyprland configuration;
-that happens only after **Apply configuration** is pressed in the wizard.
+Open **Keyboard Setup** from the application launcher, run
+`omarchy-keyboard-wizard`, or summon the panel directly:
+
+```bash
+omarchy-shell shell summon tar5.keyboard-wizard '{}'
+```
+
+Installation does not alter the Hyprland configuration. The wizard writes only
+after **Apply configuration** is pressed.
 
 ## What gets written
 
@@ -72,32 +82,23 @@ hl.device({
 -- END OMARCHY KEYBOARD WIZARD 012345abcdef
 ```
 
-Re-running the wizard for the same device replaces that block instead of
-creating duplicates. Other user settings are left in place.
-
-Backups use this naming scheme:
+Re-running the wizard for the same device replaces that block. Other user
+settings are left in place. Backups are stored beside the config as:
 
 ```text
-~/.config/hypr/input.lua.keyboard-wizard.bak.YYYYMMDD-HHMMSS
+~/.config/hypr/input.lua.keyboard-wizard.bak.YYYYMMDD-HHMMSS-ffffff
 ```
 
 ## Development
 
-Run the built-in backend checks:
+Validate the backend, tests, plugin manifest, and QML:
 
 ```bash
-python3 src/wizard.py --self-test
+python3 src/backend.py self-test
 python3 -m unittest discover -s tests -v
+omarchy plugin validate .
+qmllint -I /usr/share/omarchy/shell Panel.qml
 ```
-
-Run a brief GUI smoke test from an active Hyprland session:
-
-```bash
-python3 src/wizard.py --smoke-test
-```
-
-The smoke test opens the layout, calibration, and review screens, then exits. It
-does not apply a configuration.
 
 See [Architecture](docs/architecture.md) and
 [Troubleshooting](docs/troubleshooting.md) for more detail.
@@ -108,8 +109,8 @@ See [Architecture](docs/architecture.md) and
 ./uninstall.sh
 ```
 
-Uninstalling removes only the installed application and launcher. Generated
-Hyprland settings and backups are intentionally preserved.
+Uninstalling removes the plugin and launchers. Generated Hyprland settings and
+backups are intentionally preserved.
 
 ## License
 

@@ -1,12 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
-installed_app="$data_home/omarchy-keyboard-wizard/wizard.py"
-
-if [[ -f "$installed_app" ]]; then
-  exec /usr/bin/python3 "$installed_app" "$@"
-fi
-
-script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-exec /usr/bin/python3 "$script_dir/../src/wizard.py" "$@"
+exec omarchy-shell shell summon tar5.keyboard-wizard '{}'

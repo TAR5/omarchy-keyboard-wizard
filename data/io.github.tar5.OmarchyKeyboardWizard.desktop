@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Keyboard Setup
-Comment=Set up a keyboard layout and calibrate modifier keys for Omarchy
+Comment=Set up a keyboard layout and verify modifiers and punctuation in Omarchy
 Exec=omarchy-keyboard-wizard
 Icon=input-keyboard
 Terminal=false

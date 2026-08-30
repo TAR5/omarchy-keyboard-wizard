@@ -1,34 +1,62 @@
 # Architecture
 
+## Quickshell panel
+
+`Panel.qml` is an Omarchy panel plugin. Omarchy injects the shell API and plugin
+manifest, while the manifest source directory locates `src/backend.py`. The
+panel uses the installed Omarchy colors, spacing, typography, surfaces, buttons,
+and dropdown components rather than carrying a second UI toolkit.
+
+While open, its Wayland layer surface requests exclusive keyboard focus. A
+focused QML item handles `Keys.onPressed` and `Keys.onReleased`, including bare
+modifier events that terminals cannot observe reliably.
+
 ## Input capture
 
-The wizard uses a GTK 4 `EventControllerKey` in the capture phase. GTK receives
-bare modifier presses that a terminal normally consumes or represents only as
-state changes.
-
-Calibration is based on the hardware keycode rather than the translated keysym.
+Modifier calibration uses `KeyEvent.nativeScanCode`, not the translated symbol.
 This distinction matters when an existing XKB option already corrects a firmware
-swap: the visible keysym may look correct, but the hardware code still reveals
+swap: the visible symbol may look correct, while the scan code still reveals
 what the keyboard emitted.
 
-GDK normally reports XKB keycodes on Wayland, which are Linux evdev codes plus
-eight. The backend accepts both forms and normalizes them before comparison.
+Qt normally reports XKB keycodes on Wayland, which are Linux evdev codes plus
+eight. The Python backend accepts both forms and normalizes them before
+comparison.
+
+Character verification uses `KeyEvent.text`. The panel tracks every scan code
+held in a chord and accepts a match only after all keys are released. That lets
+Shift and AltGr combinations settle cleanly. A dead-key sequence can span
+multiple presses; for example, tilde may be composed by pressing its dead key
+and then Space.
+
+The verified set is `@ { } [ ] > < | ~` and backslash (`\`). These captures are
+diagnostic: the chosen XKB layout and variant remain responsible for producing
+the characters.
+
+## Python backend
+
+The backend is a small JSON command-line service using only the Python standard
+library:
+
+- `state` discovers keyboards and XKB choices and returns the capture steps.
+- `review <json>` analyzes scan codes and character output without writing.
+- `apply <json>` renders, writes, reloads, validates, and if necessary rolls
+  back the Hyprland configuration.
+- `self-test` performs dependency-free backend checks.
+
+Each command writes exactly one JSON object to stdout so Quickshell can use a
+short-lived `Process` and `StdioCollector` rather than maintaining a daemon.
 
 ## Device discovery
 
 Hyprland's `hyprctl -j devices` output includes media controls, power buttons,
-virtual keyboards, and other devices alongside physical keyboards. The wizard
+virtual keyboards, and other devices alongside physical keyboards. The backend
 cross-checks those entries with `/proc/bus/input/devices` and requires normal
 typing capabilities such as Enter, A, Z, and Space. It also removes known
 control-only endpoints and collapses duplicate USB keyboard endpoints.
 
 ## Mapping model
 
-Alphanumeric behavior comes from the selected XKB layout and variant. The key
-walkthrough concentrates on setup-relevant control and modifier keys.
-
-Recognized pair swaps are translated to standard `xkeyboard-config` options,
-including:
+Recognized pair swaps are translated to standard `xkeyboard-config` options:
 
 | Detected swap | XKB option |
 |---|---|
@@ -42,13 +70,12 @@ including:
 | Left Super / Left Ctrl | `ctrl:swap_lwin_lctl` |
 | Right Super / Right Ctrl | `ctrl:swap_rwin_rctl` |
 
-Unrecognized mappings are reported in the review screen instead of silently
-guessing at a correction.
+Unrecognized mappings are reported during review instead of being guessed.
 
 ## Configuration safety
 
 Each keyboard gets a generated block identified by a short SHA-256 digest of
-the Hyprland device name. Updating one keyboard replaces only its own marked
+its Hyprland device name. Updating one keyboard replaces only its own marked
 block.
 
 The write path is:

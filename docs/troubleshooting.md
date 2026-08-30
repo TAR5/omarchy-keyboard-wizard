@@ -25,6 +25,29 @@ firmware layers and multi-key permutations require a custom XKB symbols file or
 a lower-level remapper. The wizard still allows the selected layout to be
 applied without guessing at an unsafe remap.
 
+## A requested character is not accepted
+
+Type the character as you normally would, including Shift or AltGr. The wizard
+waits for the entire chord to be released. On a dead-key layout, tilde may need
+the tilde dead key followed by Space.
+
+The panel compares the actual text produced by the selected XKB layout. If the
+wrong symbol appears, return to setup and try another layout or variant. You can
+also skip the character and apply the layout with a warning; the wizard does not
+guess at a character remap.
+
+## The panel does not receive bare modifier keys
+
+Make sure the plugin is opened through `omarchy-shell`, not by running the QML
+file as a standalone window:
+
+```bash
+omarchy-shell shell summon tar5.keyboard-wizard '{}'
+```
+
+The Omarchy panel host gives the layer surface exclusive keyboard focus while
+the wizard is visible.
+
 ## The layout changed but the bar indicator did not appear
 
 The Omarchy keyboard-layout widget hides itself when only one layout is active.
